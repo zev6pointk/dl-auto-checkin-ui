@@ -33,3 +33,6 @@ Thumbs.db
 # 日志
 *.log
 log/
+
+checkinConfig.json
+reserveConfig.json

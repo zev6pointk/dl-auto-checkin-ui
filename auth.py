@@ -64,13 +64,45 @@ class Authentication:
         try:
             # 从配置中获取参数（如果未提供）
             if username is None and self.config and self.user_key:
-                username = self.config['reserveUrl'][self.user_key]['username']
+                try:
+                    # 尝试不同的配置路径
+                    if 'reserveUrl' in self.config and self.user_key in self.config['reserveUrl']:
+                        username = self.config['reserveUrl'][self.user_key]['username']
+                    elif self.user_key in self.config:
+                        username = self.config[self.user_key]['username']
+                    else:
+                        if callback: callback(f"错误: 无法找到用户名配置")
+                        return False
+                except Exception as e:
+                    if callback: callback(f"获取用户名配置时出错: {str(e)}")
+                    return False
             
             if password is None and self.config and self.user_key:
-                password = self.config['reserveUrl'][self.user_key]['password']
+                try:
+                    # 尝试不同的配置路径
+                    if 'reserveUrl' in self.config and self.user_key in self.config['reserveUrl']:
+                        password = self.config['reserveUrl'][self.user_key]['password']
+                    elif self.user_key in self.config:
+                        password = self.config[self.user_key]['password']
+                    else:
+                        if callback: callback(f"错误: 无法找到密码配置")
+                        return False
+                except Exception as e:
+                    if callback: callback(f"获取密码配置时出错: {str(e)}")
+                    return False
             
-            if url is None and self.config:
-                url = self.config['url']
+            # 使用默认URL或从配置中获取
+            if url is None:
+                # 默认登录URL
+                url = "https://webvpn3.hebau.edu.cn/https/77726476706e69737468656265737421f5ff40902b7e60557c099ce29d51367b21a6/qljfwapp/sys/lwAppointmentPublicPlace/*default/index.do"
+                
+                # 尝试从配置中获取URL
+                if self.config and 'url' in self.config:
+                    url = self.config['url']
+                elif self.config and 'login_url' in self.config:
+                    url = self.config['login_url']
+                
+                if callback: callback(f"使用URL: {url}")
             
             # 打开登录页面
             if callback: callback("正在打开登录页面...")
@@ -100,7 +132,7 @@ class Authentication:
             self.wait_for_page_load()
             
             # 检查是否需要多因子验证
-            if self.check_for_mfa():
+            if self.check_for_mfa(callback):
                 if callback: callback("需要多因子验证")
                 return "MFA_REQUIRED"
             
@@ -110,7 +142,7 @@ class Authentication:
                 if callback: callback("登录成功")
                 return True
             else:
-                if callback: callback("登录失败")
+                if callback: callback("登录失败，请检查用户名和密码")
                 return False
             
         except Exception as e:
@@ -118,26 +150,74 @@ class Authentication:
             logging.error(f"登录失败: {e}")
             return False
     
-    def check_for_mfa(self):
+    def check_for_mfa(self, callback=None):
         """
         检查是否需要多因子验证
+        
+        参数:
+            callback: 回调函数，用于报告状态更新
         
         返回:
             bool: 是否需要多因子验证
         """
         try:
-            # 检查是否存在多因子验证的元素
-            # 注意：这里需要根据实际网站的多因子验证页面元素来调整
-            mfa_elements = self.driver.find_elements(By.XPATH, "//div[contains(text(), '验证码')]")
+            # 检查页面标题或内容是否包含多因子验证相关文字
+            if "多因子认证" in self.driver.page_source:
+                if callback: callback("检测到多因子认证页面")
+                
+                # 尝试点击获取验证码按钮
+                try:
+                    # 等待获取验证码按钮出现
+                    get_code_button = WebDriverWait(self.driver, 5).until(
+                        EC.element_to_be_clickable((By.ID, 'getDynamicCode'))
+                    )
+                    if callback: callback("点击获取验证码按钮")
+                    get_code_button.click()
+                    return True
+                except Exception as e:
+                    if callback: callback(f"点击获取验证码按钮失败: {e}")
+                    logging.error(f"点击获取验证码按钮失败: {e}")
+                    # 尝试其他可能的按钮
+                    try:
+                        # 尝试通过文本内容找到获取验证码按钮
+                        buttons = self.driver.find_elements(By.XPATH, "//button[contains(text(), '获取验证码') or contains(text(), '获取')]")
+                        if buttons:
+                            if callback: callback("找到替代的获取验证码按钮")
+                            buttons[0].click()
+                            return True
+                    except Exception as e2:
+                        if callback: callback(f"尝试替代按钮也失败: {e2}")
+                        logging.error(f"尝试替代按钮也失败: {e2}")
             
-            if len(mfa_elements) > 0:
-                # 找到发送验证码按钮并点击
-                send_button = self.driver.find_element(By.XPATH, "//button[contains(text(), '发送验证码')]")
-                send_button.click()
-                return True
+            # 检查是否有其他多因子验证的元素（适配不同的多因子页面）
+            
+            # 检查方法1: 通过ID检查验证码输入框
+            try:
+                code_input = self.driver.find_element(By.ID, 'dynamicCode')
+                if code_input.is_displayed():
+                    if callback: callback("找到验证码输入框")
+                    # 找到获取验证码按钮并点击
+                    get_code_buttons = self.driver.find_elements(By.XPATH, "//button[contains(text(), '获取')]")
+                    if get_code_buttons:
+                        get_code_buttons[0].click()
+                        if callback: callback("点击获取验证码按钮")
+                    return True
+            except:
+                pass
+            
+            # 检查方法2: 通过页面标题或内容
+            if "验证码" in self.driver.page_source and "登录" in self.driver.page_source:
+                if callback: callback("页面包含验证码和登录字样，可能是多因子认证页面")
+                # 尝试找到并点击获取验证码按钮
+                buttons = self.driver.find_elements(By.XPATH, "//button[contains(text(), '获取')]")
+                if buttons:
+                    buttons[0].click()
+                    if callback: callback("点击获取验证码按钮")
+                    return True
             
             return False
         except Exception as e:
+            if callback: callback(f"检查多因子验证时出错: {e}")
             logging.error(f"检查多因子验证时出错: {e}")
             return False
     
@@ -155,25 +235,84 @@ class Authentication:
         try:
             if callback: callback(f"正在提交验证码: {code}")
             
-            # 找到验证码输入框
-            code_input = self.wait.until(
-                EC.presence_of_element_located((By.XPATH, "//input[@placeholder='验证码']"))
-            )
+            # 先尝试通过ID找到验证码输入框
+            try:
+                code_input = WebDriverWait(self.driver, 5).until(
+                    EC.presence_of_element_located((By.ID, 'dynamicCode'))
+                )
+                if callback: callback("找到验证码输入框(通过ID)")
+            except:
+                if callback: callback("未通过ID找到验证码输入框，尝试其他方法")
+                # 尝试通过placeholder找到验证码输入框
+                code_input = WebDriverWait(self.driver, 5).until(
+                    EC.presence_of_element_located((By.XPATH, "//input[@placeholder='请输入' or @placeholder='请输入验证码' or contains(@placeholder, '验证码')]"))
+                )
+                if callback: callback("找到验证码输入框(通过placeholder)")
             
             # 输入验证码
             code_input.clear()
             code_input.send_keys(code)
             
-            # 点击提交按钮
-            submit_button = self.driver.find_element(By.XPATH, "//button[contains(text(), '确认') or contains(text(), '提交')]")
+            # 点击登录/提交按钮
+            # 先尝试通过ID找到按钮
+            try:
+                submit_button = self.driver.find_element(By.ID, 'reAuthSubmitBtn')
+                if callback: callback("找到提交按钮(通过ID)")
+            except:
+                if callback: callback("未通过ID找到提交按钮，尝试其他方法")
+                # 尝试通过文本内容找到按钮
+                submit_button = self.driver.find_element(By.XPATH, "//button[contains(text(), '登录') or contains(text(), '提交') or contains(text(), '确认')]")
+                if callback: callback("找到提交按钮(通过文本)")
+            
             submit_button.click()
+            if callback: callback("已点击提交按钮")
             
             # 等待页面加载
             time.sleep(2)
             self.wait_for_page_load()
             
+            # 尝试找到并点击"信任此设备"按钮
+            try:
+                # 尝试多种方式找到信任此设备按钮
+                trust_buttons = []
+                try:
+                    # 通过class查找
+                    trust_buttons = self.driver.find_elements(By.CLASS_NAME, 'trust-device-button')
+                except:
+                    pass
+                
+                if not trust_buttons:
+                    try:
+                        # 通过文本内容查找
+                        trust_buttons = self.driver.find_elements(By.XPATH, "//button[contains(., '信任此设备')]")
+                    except:
+                        pass
+                
+                if not trust_buttons:
+                    try:
+                        # 通过完整XPath查找
+                        trust_buttons = self.driver.find_elements(By.XPATH, "//button[@class='trust-device-button trust-device-sub-btn']")
+                    except:
+                        pass
+                
+                if trust_buttons:
+                    if callback: callback("找到'信任此设备'按钮，点击中...")
+                    trust_buttons[0].click()
+                    time.sleep(1)  # 等待按钮点击效果
+                    if callback: callback("已点击'信任此设备'按钮")
+                else:
+                    if callback: callback("未找到'信任此设备'按钮，继续验证流程")
+            except Exception as e:
+                if callback: callback(f"处理'信任此设备'按钮时出错: {e}")
+                logging.warning(f"处理'信任此设备'按钮时出错: {e}")
+                # 继续流程，不要因为这个错误而中断
+            
+            # 等待页面加载
+            time.sleep(1)
+            self.wait_for_page_load()
+            
             # 检查是否验证成功
-            if "login" not in self.driver.current_url:
+            if "login" not in self.driver.current_url and "多因子" not in self.driver.page_source:
                 self.is_logged_in = True
                 if callback: callback("验证成功")
                 return True

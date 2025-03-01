@@ -22,20 +22,49 @@ class LibraryCheckin:
         self.callback = callback or (lambda msg: None)  # 默认回调为空函数
         
         # 加载配置
-        with open(config_path, 'r', encoding='utf-8') as f:
-            self.config = json.load(f)
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                self.config = json.load(f)
+            self.callback(f"成功加载签到配置文件")
+        except Exception as e:
+            error_msg = f"加载签到配置文件失败: {e}"
+            self.callback(error_msg)
+            logging.error(error_msg)
+            self.config = {}
         
         # 初始化认证模块
         self.auth = Authentication(driver=driver, config_path=config_path, user_key=user_key)
         self.driver = self.auth.driver
         
         # 获取座位ID
-        self.seat_id = self.config[user_key]['seat_id']
-        self.username = self.config[user_key]['username']
-        self.password = self.config[user_key]['password']
+        try:
+            if user_key in self.config:
+                self.seat_id = self.config[user_key]['seat_id']
+                self.username = self.config[user_key]['username']
+                self.password = self.config[user_key]['password']
+                self.callback(f"成功加载用户 {user_key} 的签到配置")
+            else:
+                error_msg = f"错误: 在配置中找不到用户 {user_key}"
+                self.callback(error_msg)
+                logging.error(error_msg)
+                self.seat_id = None
+                self.username = None
+                self.password = None
+        except Exception as e:
+            error_msg = f"加载用户 {user_key} 配置时出错: {e}"
+            self.callback(error_msg)
+            logging.error(error_msg)
+            self.seat_id = None
+            self.username = None
+            self.password = None
         
         # 构建签到URL
-        self.checkin_url = f"https://webvpn3.hebau.edu.cn/https/77726476706e69737468656265737421f5ff40902b7e60557c099ce29d51367b21a6/qljfwapp/sys/lwAppointmentPublicPlace/*default/index.do?placeId=fb9dedd807fc48a59dc19338a50ea099&seatId={self.seat_id}#/checkinBySeat"
+        if self.seat_id:
+            self.checkin_url = f"https://webvpn3.hebau.edu.cn/https/77726476706e69737468656265737421f5ff40902b7e60557c099ce29d51367b21a6/qljfwapp/sys/lwAppointmentPublicPlace/*default/index.do?placeId=fb9dedd807fc48a59dc19338a50ea099&seatId={self.seat_id}#/checkinBySeat"
+            self.callback(f"座位ID: {self.seat_id}")
+        else:
+            self.checkin_url = None
+            self.callback("警告: 未设置座位ID，无法构建签到URL")
     
     def perform_check_in(self):
         """执行签到操作"""
@@ -70,6 +99,11 @@ class LibraryCheckin:
     def run(self):
         """执行完整的签到流程"""
         try:
+            # 检查是否有签到URL
+            if not self.checkin_url:
+                self.callback("错误: 未设置签到URL，无法继续")
+                return False
+                
             # 打开签到页面
             self.callback("正在打开签到页面...")
             self.driver.get(self.checkin_url)
@@ -78,6 +112,10 @@ class LibraryCheckin:
             # 检查是否需要登录
             if "login" in self.driver.current_url:
                 self.callback("需要登录")
+                if not self.username or not self.password:
+                    self.callback("错误: 用户名或密码未设置，无法登录")
+                    return False
+                    
                 login_result = self.auth.login(
                     username=self.username,
                     password=self.password,
@@ -125,6 +163,10 @@ class LibraryCheckin:
                 return False
             
             # 继续签到流程
+            if not self.checkin_url:
+                self.callback("错误: 未设置签到URL，无法继续")
+                return False
+                
             self.driver.get(self.checkin_url)
             self.auth.wait_for_page_load()
             
@@ -139,7 +181,10 @@ class LibraryCheckin:
     
     def close(self):
         """关闭签到模块（清理资源）"""
-        self.auth.close()
+        try:
+            self.auth.close()
+        except Exception as e:
+            logging.error(f"关闭签到模块时出错: {e}")
 
 # 如果直接运行该模块，执行测试
 if __name__ == "__main__":

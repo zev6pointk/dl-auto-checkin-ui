@@ -1,4 +1,6 @@
 import json
+import os
+import sys
 import time
 import logging
 from selenium import webdriver
@@ -24,7 +26,7 @@ class Authentication:
         
         # 加载配置
         if config_path:
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(self.resource_path(config_path), 'r', encoding='utf-8') as f:
                 self.config = json.load(f)
         
         # 创建新WebDriver如果未提供
@@ -40,6 +42,15 @@ class Authentication:
         # 设置WebDriverWait
         self.wait = WebDriverWait(self.driver, 10)
     
+    @staticmethod
+    def resource_path(relative_path):
+        """ 获取资源绝对路径 """
+        if hasattr(sys, '_MEIPASS'):
+            # 打包后路径（临时解压目录）
+            return os.path.join(sys._MEIPASS, relative_path)
+        # 未打包时的开发路径
+        return os.path.join(os.path.abspath("."), relative_path)
+
     def wait_for_page_load(self, timeout=30):
         """等待页面加载完成"""
         wait = WebDriverWait(self.driver, timeout)

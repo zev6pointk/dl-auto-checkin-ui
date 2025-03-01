@@ -1,5 +1,7 @@
 import json
 import datetime
+import os
+import sys
 import time
 import logging
 from selenium.webdriver.common.by import By
@@ -24,7 +26,7 @@ class LibraryReserve:
         
         # 加载配置
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(self.resource_path(config_path), 'r', encoding='utf-8') as f:
                 self.config = json.load(f)
             self.callback(f"成功加载预约配置文件")
         except Exception as e:
@@ -65,6 +67,15 @@ class LibraryReserve:
             [["20", "20"], ["22", "00"]]
         ]
     
+    @staticmethod
+    def resource_path(relative_path):
+        """ 获取资源绝对路径 """
+        if hasattr(sys, '_MEIPASS'):
+            # 打包后路径（临时解压目录）
+            return os.path.join(sys._MEIPASS, relative_path)
+        # 未打包时的开发路径
+        return os.path.join(os.path.abspath("."), relative_path)
+
     def build_reservation_url(self, time_index):
         """
         构建预约URL

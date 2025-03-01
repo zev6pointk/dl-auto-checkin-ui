@@ -47,31 +47,48 @@ class LibraryAutomationUI:
         # 更新用户列表
         self.update_user_list()
     
+    @staticmethod
+    def resource_path(relative_path):
+        """ 获取资源绝对路径 """
+        if hasattr(sys, '_MEIPASS'):
+            # 打包后路径（临时解压目录）
+            return os.path.join(sys._MEIPASS, relative_path)
+        # 未打包时的开发路径
+        return os.path.join(os.path.abspath("."), relative_path)
+
     def load_config(self):
-        """加载配置文件"""
+        """加载配置文件（兼容打包后路径）"""
         config = {}
+        
+        # 加载签到配置
         try:
-            # 尝试加载签到配置
-            if os.path.exists('checkinConfig.json'):
-                with open('checkinConfig.json', 'r', encoding='utf-8') as f:
+            checkin_path = self.resource_path('checkinConfig.json')
+            if os.path.exists(checkin_path):
+                with open(checkin_path, 'r', encoding='utf-8') as f:
                     config['checkin'] = json.load(f)
-                self.log("成功加载签到配置文件")
+                self.log(f"成功加载签到配置文件: {checkin_path}")
             else:
-                self.log("警告: 找不到签到配置文件")
-            
-            # 尝试加载预约配置
-            if os.path.exists('reserveConfig.json'):
-                with open('reserveConfig.json', 'r', encoding='utf-8') as f:
-                    config['reserve'] = json.load(f)
-                self.log("成功加载预约配置文件")
-            else:
-                self.log("警告: 找不到预约配置文件")
-            
-            return config
+                self.log(f"⚠️ 配置文件未找到: {checkin_path}")
         except Exception as e:
-            logging.error(f"加载配置文件失败: {e}")
-            self.log(f"加载配置文件失败: {e}")
-            return {}
+            error_msg = f"签到配置加载失败: {str(e)}"
+            self.log(error_msg)
+            logging.error(error_msg)
+        
+        # 加载预约配置
+        try:
+            reserve_path = self.resource_path('reserveConfig.json')
+            if os.path.exists(reserve_path):
+                with open(reserve_path, 'r', encoding='utf-8') as f:
+                    config['reserve'] = json.load(f)
+                self.log(f"成功加载预约配置文件: {reserve_path}")
+            else:
+                self.log(f"⚠️ 配置文件未找到: {reserve_path}")
+        except Exception as e:
+            error_msg = f"预约配置加载失败: {str(e)}"
+            self.log(error_msg)
+            logging.error(error_msg)
+        
+        return config
     
     def update_user_list(self):
         """更新用户列表"""

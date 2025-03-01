@@ -217,3 +217,9 @@ Stacktrace:
 2025-03-01 11:16:26,182 - INFO: 正在执行签到操作...
 2025-03-01 11:16:33,907 - INFO: 签到成功
 2025-03-01 11:16:39,058 - INFO: checkin流程成功完成
+2025-03-01 12:28:41,411 - INFO: 应用已启动，请选择用户并开始操作
+2025-03-01 12:28:41,414 - INFO: 成功加载签到配置文件
+2025-03-01 12:28:41,416 - INFO: 成功加载预约配置文件
+2025-03-01 12:49:04,421 - INFO: 应用已启动，请选择用户并开始操作
+2025-03-01 12:49:04,438 - INFO: 成功加载签到配置文件: D:\00DeskTop\Code\VSCode\dl-auto-checkin-by-claude\checkinConfig.json
+2025-03-01 12:49:04,458 - INFO: 成功加载预约配置文件: D:\00DeskTop\Code\VSCode\dl-auto-checkin-by-claude\reserveConfig.json

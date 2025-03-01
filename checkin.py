@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+import sys
 import time
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -23,7 +25,7 @@ class LibraryCheckin:
         
         # 加载配置
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(self.resource_path(config_path), 'r', encoding='utf-8') as f:
                 self.config = json.load(f)
             self.callback(f"成功加载签到配置文件")
         except Exception as e:
@@ -66,6 +68,15 @@ class LibraryCheckin:
             self.checkin_url = None
             self.callback("警告: 未设置座位ID，无法构建签到URL")
     
+    @staticmethod
+    def resource_path(relative_path):
+        """ 获取资源绝对路径 """
+        if hasattr(sys, '_MEIPASS'):
+            # 打包后路径（临时解压目录）
+            return os.path.join(sys._MEIPASS, relative_path)
+        # 未打包时的开发路径
+        return os.path.join(os.path.abspath("."), relative_path)
+
     def perform_check_in(self):
         """执行签到操作"""
         try:

@@ -11,7 +11,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from auth import Authentication
 
 class LibraryReserve:
-    def __init__(self, driver=None, user_key=None, config_path='reserveConfig.json', callback=None):
+    def __init__(self, driver=None, user_key=None, config_path='reserveConfig.json', callback=None, headless=False):
         """
         初始化图书馆预约类
         
@@ -36,7 +36,7 @@ class LibraryReserve:
             self.config = {}
         
         # 初始化认证模块
-        self.auth = Authentication(driver=driver, config_path=config_path, user_key=user_key)
+        self.auth = Authentication(driver=driver, config_path=config_path, user_key=user_key, headless=headless)
         self.driver = self.auth.driver
         
         # 检查用户配置
@@ -130,83 +130,116 @@ class LibraryReserve:
         返回:
             bool: 预约是否成功
         """
-        try:
-            # 计算实际开始时间
-            start_time = 6 + time_index * 2
-            self.callback(f"开始预约第{time_index}个时段 ({start_time}点)")
-            
-            # 构建并打开预约URL
-            reservation_url = self.build_reservation_url(time_index)
-            if not reservation_url:
-                self.callback(f"无法为第{time_index}个时段生成预约URL")
-                return False
-                
-            self.driver.get(reservation_url)
-            self.auth.wait_for_page_load(timeout=20)
-            
-            # 选择区域
+        max_retries = 2  # 最大重试次数
+        retry_count = 0
+        
+        while retry_count <= max_retries:
             try:
-                if 'selectArea' not in self.config:
-                    self.callback("错误: 配置中缺少selectArea")
+                # 计算实际开始时间
+                start_time = 6 + time_index * 2
+                self.callback(f"开始预约第{time_index}个时段 ({start_time}点){' - 重试尝试' + str(retry_count) if retry_count > 0 else ''}")
+                
+                # 构建并打开预约URL
+                reservation_url = self.build_reservation_url(time_index)
+                if not reservation_url:
+                    self.callback(f"无法为第{time_index}个时段生成预约URL")
                     return False
                     
-                select_area = WebDriverWait(self.driver, 20).until(
-                    EC.element_to_be_clickable((By.XPATH, self.config['selectArea']))
-                )
-                select_area.click()
-                self.auth.wait_for_page_load()
+                self.driver.get(reservation_url)
+                # 增加等待时间，确保页面完全加载
+                self.auth.wait_for_page_load(timeout=30)
+                # 额外短暂等待，确保JS渲染完成
+                time.sleep(2)
                 
-                # 选择东C
-                if 'eastC' not in self.config:
-                    self.callback("错误: 配置中缺少eastC")
-                    return False
+                # 选择区域
+                try:
+                    if 'selectArea' not in self.config:
+                        self.callback("错误: 配置中缺少selectArea")
+                        return False
                     
-                east_c = WebDriverWait(self.driver, 20).until(
-                    EC.element_to_be_clickable((By.XPATH, self.config['eastC']))
-                )
-                east_c.click()
-                self.auth.wait_for_page_load()
-                
-                # 选择座位
-                if 'seat_xpath' not in self.user_config:
-                    self.callback("错误: 用户配置中缺少seat_xpath")
-                    return False
+                    # 使用更稳定的等待策略
+                    select_area = WebDriverWait(self.driver, 20).until(
+                        EC.element_to_be_clickable((By.XPATH, self.config['selectArea']))
+                    )
+                    self.callback("找到区域选择按钮")
+                    select_area.click()
+                    time.sleep(1)  # 短暂等待点击效果
+                    self.auth.wait_for_page_load()
                     
-                seat_xpath = self.user_config['seat_xpath']
-                self.callback(f"正在查找座位: {seat_xpath}")
-                
-                seat = WebDriverWait(self.driver, 20).until(
-                    EC.element_to_be_clickable((By.XPATH, seat_xpath))
-                )
-                seat.click()
-                self.auth.wait_for_page_load()
-                
-                # 点击确定
-                if 'confirmButton' not in self.config:
-                    self.callback("错误: 配置中缺少confirmButton")
-                    return False
+                    # 选择东C
+                    if 'eastC' not in self.config:
+                        self.callback("错误: 配置中缺少eastC")
+                        return False
                     
-                confirm_button = WebDriverWait(self.driver, 20).until(
-                    EC.element_to_be_clickable((By.XPATH, self.config['confirmButton']))
-                )
-                confirm_button.click()
-                
-                # 等待预约完成
-                self.auth.wait_for_page_load()
-                self.callback(f"第{time_index}个时段预约成功 ({start_time}点)")
-                return True
-                
+                    # 刷新元素引用，避免stale元素
+                    east_c = WebDriverWait(self.driver, 20).until(
+                        EC.element_to_be_clickable((By.XPATH, self.config['eastC']))
+                    )
+                    self.callback("找到东C选项")
+                    east_c.click()
+                    time.sleep(1)  # 短暂等待点击效果
+                    self.auth.wait_for_page_load()
+                    
+                    # 选择座位
+                    if 'seat_xpath' not in self.user_config:
+                        self.callback("错误: 用户配置中缺少seat_xpath")
+                        return False
+                    
+                    seat_xpath = self.user_config['seat_xpath']
+                    self.callback(f"正在查找座位: {seat_xpath}")
+                    
+                    # 确保元素可交互
+                    seat = WebDriverWait(self.driver, 20).until(
+                        EC.element_to_be_clickable((By.XPATH, seat_xpath))
+                    )
+                    seat.click()
+                    time.sleep(1)  # 短暂等待点击效果
+                    self.auth.wait_for_page_load()
+                    
+                    # 点击确定
+                    if 'confirmButton' not in self.config:
+                        self.callback("错误: 配置中缺少confirmButton")
+                        return False
+                    
+                    # 再次刷新元素引用
+                    confirm_button = WebDriverWait(self.driver, 20).until(
+                        EC.element_to_be_clickable((By.XPATH, self.config['confirmButton']))
+                    )
+                    confirm_button.click()
+                    
+                    # 等待预约完成
+                    time.sleep(2)  # 确保操作完成
+                    self.auth.wait_for_page_load()
+                    self.callback(f"第{time_index}个时段预约成功 ({start_time}点)")
+                    return True
+                    
+                except Exception as e:
+                    error_msg = f"预约第{time_index}个时段过程中出错: {e}"
+                    self.callback(error_msg)
+                    logging.error(error_msg)
+                    
+                    retry_count += 1
+                    if retry_count <= max_retries:
+                        self.callback(f"将进行第{retry_count}次重试...")
+                        time.sleep(2)  # 短暂等待后重试
+                        continue
+                    else:
+                        return False
+                    
             except Exception as e:
                 error_msg = f"预约第{time_index}个时段失败: {e}"
                 self.callback(error_msg)
                 logging.error(error_msg)
-                return False
-            
-        except Exception as e:
-            error_msg = f"预约第{time_index}个时段过程中出错: {e}"
-            self.callback(error_msg)
-            logging.error(error_msg)
-            return False
+                
+                retry_count += 1
+                if retry_count <= max_retries:
+                    self.callback(f"将进行第{retry_count}次重试...")
+                    time.sleep(2)  # 短暂等待后重试
+                    continue
+                else:
+                    return False
+        
+        return False  # 所有重试都失败
     
     def run(self):
         """执行完整的预约流程"""

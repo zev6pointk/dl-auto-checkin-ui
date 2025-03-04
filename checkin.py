@@ -10,7 +10,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from auth import Authentication
 
 class LibraryCheckin:
-    def __init__(self, driver=None, user_key=None, config_path='checkinConfig.json', callback=None):
+    def __init__(self, driver=None, user_key=None, config_path='checkinConfig.json', callback=None, headless=False):
         """
         初始化图书馆签到类
         
@@ -35,7 +35,7 @@ class LibraryCheckin:
             self.config = {}
         
         # 初始化认证模块
-        self.auth = Authentication(driver=driver, config_path=config_path, user_key=user_key)
+        self.auth = Authentication(driver=driver, config_path=config_path, user_key=user_key, headless=headless)
         self.driver = self.auth.driver
         
         # 获取座位ID
@@ -76,11 +76,22 @@ class LibraryCheckin:
             return os.path.join(sys._MEIPASS, relative_path)
         # 未打包时的开发路径
         return os.path.join(os.path.abspath("."), relative_path)
-
+    
     def perform_check_in(self):
         """执行签到操作"""
         try:
             self.callback("正在执行签到操作...")
+            
+            # 检查当前URL是否包含#/checkinBySeat
+            current_url = self.driver.current_url
+            if "#/checkinBySeat" not in current_url:
+                self.callback("当前URL不是签到页面，正在修正...")
+                if "?" in current_url:
+                    correct_url = current_url.split("#")[0] + "#/checkinBySeat"
+                else:
+                    correct_url = f"{current_url}?placeId=fb9dedd807fc48a59dc19338a50ea099&seatId={self.seat_id}#/checkinBySeat"
+                self.driver.get(correct_url)
+                self.auth.wait_for_page_load()
             
             # 等待签到按钮出现
             check_in_button = WebDriverWait(self.driver, 20).until(
@@ -130,7 +141,8 @@ class LibraryCheckin:
                 login_result = self.auth.login(
                     username=self.username,
                     password=self.password,
-                    callback=self.callback
+                    callback=self.callback,
+                    url=self.checkin_url
                 )
                 
                 # 处理多因子验证

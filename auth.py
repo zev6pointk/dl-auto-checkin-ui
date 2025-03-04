@@ -10,7 +10,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 class Authentication:
-    def __init__(self, driver=None, config_path=None, user_key=None):
+    def __init__(self, driver=None, config_path=None, user_key=None, headless=False):
         """
         初始化认证模块
         
@@ -18,6 +18,7 @@ class Authentication:
             driver: WebDriver实例，如果为None则创建新实例
             config_path: 配置文件路径
             user_key: 用户配置键名
+            headless: 是否以无头模式运行
         """
         self.driver = driver
         self.user_key = user_key
@@ -32,6 +33,10 @@ class Authentication:
         # 创建新WebDriver如果未提供
         if self.driver is None:
             options = Options()
+            
+            if headless:
+                options.add_argument("--headless")
+                
             options.add_argument("--disable-gpu")
             options.add_argument("--no-sandbox")
             self.driver = webdriver.Chrome(options=options)

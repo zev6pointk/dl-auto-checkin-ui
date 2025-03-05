@@ -34,5 +34,4 @@ Thumbs.db
 *.log
 log/
 
-checkinConfig.json
-reserveConfig.json
+*.json

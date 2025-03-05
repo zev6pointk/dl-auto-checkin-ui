@@ -49,12 +49,15 @@ class Authentication:
     
     @staticmethod
     def resource_path(relative_path):
-        """ 获取资源绝对路径 """
+        """ 获取资源绝对路径（支持外部文件）"""
         if hasattr(sys, '_MEIPASS'):
-            # 打包后路径（临时解压目录）
-            return os.path.join(sys._MEIPASS, relative_path)
-        # 未打包时的开发路径
-        return os.path.join(os.path.abspath("."), relative_path)
+            # 打包后路径：改用 exe 所在目录而非临时目录
+            base_path = os.path.dirname(sys.executable)
+        else:
+            # 未打包时的开发路径
+            base_path = os.path.abspath(".")
+            
+        return os.path.join(base_path, relative_path)   
 
     def wait_for_page_load(self, timeout=30):
         """等待页面加载完成"""

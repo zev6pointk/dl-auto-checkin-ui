@@ -493,8 +493,9 @@ class LibraryAutomationUI:
         self.retry_button.config(state=tk.DISABLED)
         
         # 如果不是无头模式，最小化窗口
-        if not self.headless_var.get():
-            self.root.iconify()
+        # if not self.headless_var.get():
+            # self.root.iconify()
+        self.root.iconify()
         
         # 在新线程中执行签到
         def run_checkin():

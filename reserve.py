@@ -7,7 +7,7 @@ import logging
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-
+from seat_status import SeatStatusHandler
 from auth import Authentication
 
 class LibraryReserve:
@@ -66,7 +66,15 @@ class LibraryReserve:
             [["18", "20"], ["20", "19"]],
             [["20", "20"], ["22", "00"]]
         ]
+        
+        self.should_stop = False
     
+    def stop_operation(self):
+        """终止当前操作"""
+        self.should_stop = True
+        self.callback("已接收终止指令，将在完成当前步骤后停止")
+
+
     @staticmethod
     def resource_path(relative_path):
         """ 获取资源绝对路径（支持外部文件）"""
@@ -76,7 +84,7 @@ class LibraryReserve:
         else:
             # 未打包时的开发路径
             base_path = os.path.abspath(".")
-        
+            
         return os.path.join(base_path, relative_path)
 
     def build_reservation_url(self, time_index):
@@ -188,16 +196,42 @@ class LibraryReserve:
                         self.callback("错误: 用户配置中缺少seat_xpath")
                         return False
                     
-                    seat_xpath = self.user_config['seat_xpath']
-                    self.callback(f"正在查找座位: {seat_xpath}")
+                    preferred_seat_xpath = self.user_config['seat_xpath']
+                    self.callback(f"首选座位位置: {preferred_seat_xpath}")
                     
-                    # 确保元素可交互
-                    seat = WebDriverWait(self.driver, 20).until(
-                        EC.element_to_be_clickable((By.XPATH, seat_xpath))
+                    # 使用座位状态处理器
+                    seat_handler = SeatStatusHandler(self.driver, self.callback)
+                    
+                    # 获取是否允许尝试替代座位的配置
+                    try_alternatives = self.user_config.get('try_alternative_seats', True)
+                    
+                    # 处理座位选择
+                    success, status, used_seat_xpath = seat_handler.handle_seat_selection(
+                        preferred_seat_xpath, 
+                        try_alternatives=try_alternatives
                     )
-                    seat.click()
-                    time.sleep(1)  # 短暂等待点击效果
-                    self.auth.wait_for_page_load()
+                    
+                    # 根据座位状态进行不同处理
+                    if status == 2:  # 座位已被自己预约
+                        self.callback(f"第{time_index}个时段座位已被您预约，视为成功")
+                        return True
+                        
+                    elif not success:  # 座位选择失败
+                        if status == 3:  # 座位已被他人预约且无法找到替代座位
+                            self.callback(f"第{time_index}个时段座位已被他人预约，且无法找到替代座位")
+                        else:
+                            self.callback(f"第{time_index}个时段座位选择失败")
+                        
+                        # 记录详细原因到日志，以供后续分析
+                        logging.warning(f"时间段{time_index}预约失败，座位状态码: {status}")
+                        
+                        retry_count += 1
+                        if retry_count <= max_retries:
+                            self.callback(f"将进行第{retry_count}次重试...")
+                            time.sleep(2)  # 短暂等待后重试
+                            continue
+                        else:
+                            return False
                     
                     # 点击确定
                     if 'confirmButton' not in self.config:
@@ -213,9 +247,31 @@ class LibraryReserve:
                     # 等待预约完成
                     time.sleep(2)  # 确保操作完成
                     self.auth.wait_for_page_load()
-                    self.callback(f"第{time_index}个时段预约成功 ({start_time}点)")
-                    return True
                     
+                    # 验证预约是否成功
+                    try:
+                        # 查找可能的成功提示消息
+                        success_message = WebDriverWait(self.driver, 5).until(
+                            EC.presence_of_element_located((By.XPATH, "//div[contains(text(), '成功') or contains(text(), '预约成功')]"))
+                        )
+                        self.callback(f"第{time_index}个时段预约成功 ({start_time}点)")
+                        return True
+                    except:
+                        # 如果找不到成功消息，检查页面状态
+                        if "预约成功" in self.driver.page_source:
+                            self.callback(f"第{time_index}个时段预约成功 ({start_time}点)")
+                            return True
+                        else:
+                            self.callback(f"未找到成功提示，可能预约失败")
+                            
+                            # 再次尝试
+                            retry_count += 1
+                            if retry_count <= max_retries:
+                                self.callback(f"将进行第{retry_count}次重试...")
+                                time.sleep(2)  # 短暂等待后重试
+                                continue
+                            else:
+                                return False
                 except Exception as e:
                     error_msg = f"预约第{time_index}个时段过程中出错: {e}"
                     self.callback(error_msg)
@@ -228,7 +284,6 @@ class LibraryReserve:
                         continue
                     else:
                         return False
-                    
             except Exception as e:
                 error_msg = f"预约第{time_index}个时段失败: {e}"
                 self.callback(error_msg)
@@ -243,10 +298,58 @@ class LibraryReserve:
                     return False
         
         return False  # 所有重试都失败
-    
+
+    def build_reservation_url(self, time_index, days_ahead=2):
+        """
+        构建预约URL
+        
+        参数:
+            time_index: 时间段索引 (1-7)
+            days_ahead: 提前预约的天数，默认2天后
+        
+        返回:
+            str: 预约URL
+        """
+        try:
+            # 检查用户配置
+            if not self.user_config:
+                self.callback("错误: 缺少用户配置，无法构建预约URL")
+                return None
+                
+            # 获取指定天数后的日期
+            target_date = (datetime.datetime.now() + datetime.timedelta(days=days_ahead)).strftime('%Y-%m-%d')
+            self.callback(f"预约目标日期: {target_date} (提前{days_ahead}天)")
+            
+            # 获取时间段
+            if time_index < 1 or time_index > 7:
+                self.callback(f"错误: 无效的时间段索引 {time_index}，有效范围是1-7")
+                return None
+                
+            time_slot = self.index_arr[time_index]
+            start_hour, start_min = time_slot[0]
+            end_hour, end_min = time_slot[1]
+            
+            # 构建URL
+            base_url = "https://webvpn3.hebau.edu.cn/https/77726476706e69737468656265737421f5ff40902b7e60557c099ce29d51367b21a6/qljfwapp/sys/lwAppointmentPublicPlace/*default/index.do"
+            
+            url = f"{base_url}#/seatdetail?USER_ID={self.user_config['username']}&USER_NAME={self.user_config['real_name']}&DEPT_CODE=423&DEPT_NAME=%E4%BF%A1%E6%81%AF%E7%A7%91%E5%AD%A6%E4%B8%8E%E6%8A%80%E6%9C%AF%E5%AD%A6%E9%99%A2&PHONE_NUMBER={self.user_config['phone_number']}&PALCE_ID=fb9dedd807fc48a59dc19338a50ea099"
+            url += f"&BEGINNING_DATE={target_date}%20{start_hour}%3A{start_min}&ENDING_DATE={target_date}%20{end_hour}%3A{end_min}"
+            url += f"&SCHOOL_DISTRICT_CODE=1&SCHOOL_DISTRICT=%E4%B8%9C%E6%A0%A1%E5%8C%BA&LOCATION=%E4%BA%8C%E5%B1%82%E3%80%81%E4%B8%89%E5%B1%82&PLACE_NAME=%E4%B8%9C%E6%A0%A1%E5%8C%BA%E6%95%B0%E5%AD%97%E5%8C%96%E5%9B%BE%E4%B9%A6%E9%A6%86"
+            url += f"&IS_CANCELLED=0&APPLY_DATE={target_date}&APPLY_TIME_AREA={start_hour}%3A{start_min}-{end_hour}%3A{end_min}"
+            
+            self.callback(f"构建了预约URL，时间段: {start_hour}:{start_min}-{end_hour}:{end_min}")
+            return url
+        except Exception as e:
+            error_msg = f"构建预约URL时出错: {e}"
+            self.callback(error_msg)
+            logging.error(error_msg)
+            return None
+
+
     def run(self):
         """执行完整的预约流程"""
         try:
+            self.should_stop = False
             self.callback("开始预约流程...")
             
             # 检查用户配置
@@ -271,6 +374,11 @@ class LibraryReserve:
             # 依次预约每个时间段
             success_count = 0
             for i in range(1, 8):
+                # 检查是否应该终止
+                if self.should_stop:
+                    self.callback(f"操作已终止，已成功预约{success_count}个时段")
+                    return success_count > 0
+                    
                 try:
                     if self.reserve_single_time_slot(i):
                         success_count += 1
@@ -292,7 +400,8 @@ class LibraryReserve:
             self.callback(error_msg)
             logging.error(error_msg)
             return False
-    
+
+
     def continue_with_verification(self, code):
         """提交验证码并继续预约流程"""
         try:

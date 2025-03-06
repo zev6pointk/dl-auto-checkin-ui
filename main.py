@@ -220,6 +220,10 @@ class LibraryAutomationUI:
         self.retry_button = ttk.Button(button_frame, text="重试", command=self.retry_operation, state=tk.DISABLED)
         self.retry_button.pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
         
+        self.stop_button = ttk.Button(button_frame, text="终止", command=self.stop_operation, state=tk.DISABLED)
+        self.stop_button.pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
+
+
         # 验证码输入区域
         self.verification_frame = ttk.LabelFrame(main_frame, text="多因子验证", padding=10)
         # 默认隐藏
@@ -275,7 +279,57 @@ class LibraryAutomationUI:
             command=self.save_settings
         )
         self.headless_checkbox.pack(side=tk.LEFT, padx=5)
+
+        # 添加高级设置框架
+        advanced_frame = ttk.LabelFrame(self.control_frame, text="高级设置", padding=10)
+        advanced_frame.pack(fill=tk.X, pady=5)
+        
+        # 天数选择
+        days_frame = ttk.Frame(advanced_frame)
+        days_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(days_frame, text="预约天数:").pack(side=tk.LEFT, padx=5)
+        
+        self.days_var = tk.IntVar(value=2)  # 默认后天
+        days_0 = ttk.Radiobutton(days_frame, text="今天", variable=self.days_var, value=0)
+        days_0.pack(side=tk.LEFT, padx=5)
+        
+        days_1 = ttk.Radiobutton(days_frame, text="明天", variable=self.days_var, value=1)
+        days_1.pack(side=tk.LEFT, padx=5)
+        
+        days_2 = ttk.Radiobutton(days_frame, text="后天", variable=self.days_var, value=2)
+        days_2.pack(side=tk.LEFT, padx=5)
+        
+        # 座位选择
+        seat_frame = ttk.Frame(advanced_frame)
+        seat_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(seat_frame, text="座位选择:").pack(side=tk.LEFT, padx=5)
+        
+        self.use_alt_seats_var = tk.BooleanVar(value=True)
+        alt_seats_cb = ttk.Checkbutton(
+            seat_frame, 
+            text="尝试替代座位", 
+            variable=self.use_alt_seats_var
+        )
+        alt_seats_cb.pack(side=tk.LEFT, padx=5)
     
+    def stop_operation(self):
+        """终止当前操作"""
+        if not self.current_handler:
+            messagebox.showinfo("提示", "没有正在进行的操作")
+            return
+        
+        try:
+            # 调用处理器的终止方法
+            if hasattr(self.current_handler, "stop_operation"):
+                self.current_handler.stop_operation()
+                self.log("已发送终止指令，请等待当前步骤完成...")
+            else:
+                self.log("当前操作不支持终止")
+        except Exception as e:
+            self.log(f"终止操作时出错: {e}")
+            
     def log(self, message):
         """添加日志信息"""
         # 确保log_text已初始化
@@ -575,8 +629,9 @@ class LibraryAutomationUI:
         self.retry_button.config(state=tk.DISABLED)
         
         # 如果不是无头模式，最小化窗口
-        if not self.headless_var.get():
-            self.root.iconify()
+        # if not self.headless_var.get():
+            # self.root.iconify()
+        self.root.iconify()
         
         # 在新线程中执行预约
         def run_reserve():
@@ -588,11 +643,21 @@ class LibraryAutomationUI:
                     except:
                         pass
                 
+                # 获取高级设置
+                days_ahead = self.days_var.get()
+                try_alternative_seats = self.use_alt_seats_var.get()
+                
+                # 创建预约实例并传递高级设置
                 reserver = LibraryReserve(
                     user_key=selected_user,
                     callback=self.callback_handler,
                     headless=self.headless_var.get()
                 )
+                
+                # 设置高级选项
+                reserver.days_ahead = days_ahead
+                reserver.try_alternative_seats = try_alternative_seats
+                
                 self.current_handler = reserver
                 
                 result = reserver.run()
@@ -615,18 +680,11 @@ class LibraryAutomationUI:
                     # 失败时显示窗口
                     self.root.after(0, self.root.deiconify)
                     # 不关闭，允许重试
-                    # self.current_handler = None
-                    # self.current_operation = None
             except Exception as e:
                 self.log(f"预约过程中出错: {e}")
                 self.update_step(2, "error")
                 # 出错时显示窗口
                 self.root.after(0, self.root.deiconify)
-                # 不关闭，允许重试
-                # if self.current_handler:
-                #     self.current_handler.close()
-                # self.current_handler = None
-                # self.current_operation = None
             finally:
                 # 重新启用按钮
                 self.root.after(0, lambda: self.checkin_button.config(state=tk.NORMAL))
